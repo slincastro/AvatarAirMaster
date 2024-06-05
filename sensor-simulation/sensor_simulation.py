@@ -4,6 +4,7 @@ import json
 import os
 from geopy.distance import geodesic
 from kafka import KafkaProducer
+from threading import Thread
 
 
 
@@ -33,38 +34,59 @@ def calculate_pollution_level(sensor_type, location):
     pollution_level = base_level + random.uniform(-5, 5)
     return pollution_level, nearest_city, distance
 
-if __name__ == "__main__":
+def generate_data(topic):
     
-    time.sleep(30)
-    location = generate_random_coordinates()
     bootstrap_servers = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
 
     producer = KafkaProducer(
         bootstrap_servers=bootstrap_servers,
         value_serializer=lambda v: json.dumps(v).encode('utf-8')
+        
     )
+    
+    mq7_level, nearest_city, mq7_distance = calculate_pollution_level("MQ-7", location)
+    mq135_level, _, mq135_distance = calculate_pollution_level("MQ-135", location)
+    
+    data = {
+        "location": location,
+        "MQ-7": {
+            "pollution_level": mq7_level,
+            "nearest_city": nearest_city,
+            "distance_to_city_km": mq7_distance
+        },
+        "MQ-135": {
+            "pollution_level": mq135_level,
+            "nearest_city": nearest_city,
+            "distance_to_city_km": mq135_distance
+        }
+    }
+    
+    try :
+        producer.send(topic, value=data)
+        print(json.dumps(data))
+    except :
+        print("There is some error")
+    
+    
+    
+    
+if __name__ == "__main__":
+    
+    time.sleep(30)
+    location = generate_random_coordinates()
+   
      
     while True:
-       
+        topic = 'air_quality'
+        num_threads = 15  # Number of threads
 
-        mq7_level, nearest_city, mq7_distance = calculate_pollution_level("MQ-7", location)
-        mq135_level, _, mq135_distance = calculate_pollution_level("MQ-135", location)
+        threads = []
+        for _ in range(num_threads):
+            thread = Thread(target=generate_data, args=(topic))
+            thread.start()
+            threads.append(thread)
+
+        for thread in threads:
+            thread.join()
         
-        data = {
-            "location": location,
-            "MQ-7": {
-                "pollution_level": mq7_level,
-                "nearest_city": nearest_city,
-                "distance_to_city_km": mq7_distance
-            },
-            "MQ-135": {
-                "pollution_level": mq135_level,
-                "nearest_city": nearest_city,
-                "distance_to_city_km": mq135_distance
-            }
-        }
-        
-        producer.send('air_quality', value=data)
-        
-        print(json.dumps(data))
         time.sleep(2)
