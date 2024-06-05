@@ -1,7 +1,11 @@
 import time
 import random
 import json
+import os
 from geopy.distance import geodesic
+from kafka import KafkaProducer
+
+
 
 # Coordenadas aproximadas de algunas ciudades en Ecuador
 cities = {
@@ -30,9 +34,19 @@ def calculate_pollution_level(sensor_type, location):
     return pollution_level, nearest_city, distance
 
 if __name__ == "__main__":
-    location = generate_random_coordinates()
     
+    time.sleep(30)
+    location = generate_random_coordinates()
+    bootstrap_servers = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
+
+    producer = KafkaProducer(
+        bootstrap_servers=bootstrap_servers,
+        value_serializer=lambda v: json.dumps(v).encode('utf-8')
+    )
+     
     while True:
+       
+
         mq7_level, nearest_city, mq7_distance = calculate_pollution_level("MQ-7", location)
         mq135_level, _, mq135_distance = calculate_pollution_level("MQ-135", location)
         
@@ -49,6 +63,8 @@ if __name__ == "__main__":
                 "distance_to_city_km": mq135_distance
             }
         }
+        
+        producer.send('air_quality', value=data)
         
         print(json.dumps(data))
         time.sleep(2)
