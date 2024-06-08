@@ -40,7 +40,7 @@ services:
     networks:
       - kafka-net
     deploy:
-      replicas: 2 
+      replicas: 3 
       restart_policy:
         condition: on-failure
 
@@ -91,6 +91,24 @@ services:
       - kafka
     volumes:
       - ./message-collector:/app
+    networks:
+      - kafka-net
+
+  mongo:
+    image: mongo:latest
+    container_name: mongo
+    ports:
+      - "27017:27017"
+    networks:
+      - kafka-net
+  
+  storer:
+    build: ./message-storer
+    depends_on:
+      - mongo
+      - kafka
+    volumes:
+      - ./message-storer:/app
     networks:
       - kafka-net
   
