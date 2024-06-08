@@ -7,8 +7,6 @@ from kafka import KafkaProducer
 from threading import Thread
 
 
-
-# Coordenadas aproximadas de algunas ciudades en Ecuador
 cities = {
     "Quito": (-0.180653, -78.467834),
     "Guayaquil": (-2.170998, -79.922359),
@@ -78,15 +76,7 @@ if __name__ == "__main__":
      
     while True:
         topic = 'air_quality'
-        num_threads = 15  # Number of threads
 
-        threads = []
-        for _ in range(num_threads):
-            thread = Thread(target=generate_data, args=(topic))
-            thread.start()
-            threads.append(thread)
-
-        for thread in threads:
-            thread.join()
+        generate_data(topic)
         
         time.sleep(2)

@@ -31,20 +31,6 @@ services:
     networks:
       - kafka-net
 
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    container_name: kafka-ui
-    ports:
-      - "8080:8080"
-    environment:
-      KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
-      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
-    depends_on:
-      - kafka
-    networks:
-      - kafka-net
-
   sensor-simulation:
     build: ./sensor-simulation
     depends_on:
@@ -54,7 +40,7 @@ services:
     networks:
       - kafka-net
     deploy:
-      replicas: 5 
+      replicas: 2 
       restart_policy:
         condition: on-failure
 
@@ -78,22 +64,8 @@ services:
       - "8082:8081" # Spark Worker UI port
     environment:
       - "SPARK_MASTER=spark://spark-master:7077"
-      - "SPARK_WORKER_CORES=2"
-      - "SPARK_WORKER_MEMORY=2g"
-    depends_on:
-      - spark-master
-    networks:
-      - kafka-net
-
-  spark-worker-2:
-    image: bde2020/spark-worker:3.1.1-hadoop3.2
-    container_name: spark-worker-2
-    ports:
-      - "8083:8081"
-    environment:
-      - "SPARK_MASTER=spark://spark-master:7077"
-      - "SPARK_WORKER_CORES=2"
-      - "SPARK_WORKER_MEMORY=2g"
+      - "SPARK_WORKER_CORES=1"
+      - "SPARK_WORKER_MEMORY=1g"
     depends_on:
       - spark-master
     networks:
@@ -105,11 +77,23 @@ services:
     depends_on:
       - spark-master
       - spark-worker-1
-      - spark-worker-2
+    volumes:
+      - ./spark_processing.py:/opt/spark-processing/spark_processing.py
+    #entrypoint: ["/bin/bash", "-c", "/spark/bin/spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.1.1 --master spark://spark-master:7077 /opt/spark-processing/spark_processing.py"]   
     environment:
       - "SPARK_MASTER=spark://spark-master:7077"
     networks:
       - kafka-net
+
+  consumer:
+    build: ./message-collector
+    depends_on:
+      - kafka
+    volumes:
+      - ./message-collector:/app
+    networks:
+      - kafka-net
+  
 
 networks:
   kafka-net:
