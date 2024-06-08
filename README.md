@@ -13,3 +13,7 @@
 - para obtener el numero de mensajes en el topico :
 
     `sh messages_count.sh air_quality`
+
+- Para reiniciar la infraestructura con eliminacion de todos los datos ejecutar el script : 
+
+    `sh messages_count.sh`
