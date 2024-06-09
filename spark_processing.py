@@ -1,24 +1,30 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col, concat, lit
-from pyspark.sql.types import StructType, StructField, StringType, DoubleType, TimestampType
-import logging
+from pyspark.sql.functions import from_json, col, lit, count
+from pyspark.sql.types import StructType, StructField, StringType, DoubleType, ArrayType
+from kafka import KafkaProducer
+import json
 
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 schema = StructType([
-    StructField("sensor_id", StringType(), True),
-    StructField("co_level", DoubleType(), True),
-    StructField("no2_level", DoubleType(), True),
-    StructField("pm2_5_level", DoubleType(), True),
-    StructField("distance", DoubleType(), True),
-    StructField("timestamp", TimestampType(), True)
+    StructField("location", ArrayType(DoubleType()), True),
+    StructField("MQ-7", StructType([StructField("pollution_level", DoubleType(), True)]), True),
+    StructField("MQ-135", StructType([StructField("pollution_level", DoubleType(), True)]), True),
+    StructField("nearest_city", StringType(), True),
+    StructField("distance_to_city_km", DoubleType(), True)
 ])
 
 spark = SparkSession.builder \
-    .appName("AirQualityThresholdsProcessing") \
+    .appName("AirQualityProcessing") \
     .getOrCreate()
+
+producer = KafkaProducer(
+    bootstrap_servers='kafka:9092',
+    value_serializer=lambda v: json.dumps(v).encode('utf-8')
+)
+
+print("-----------------------------------------------------------------------------------------------------------------------")
+print("-------------------------------------Procesando Mensajes de IOT AirMaster----------------------------------------------")
+print("-----------------------------------------------------------------------------------------------------------------------")
 
 df = spark \
     .readStream \
@@ -28,33 +34,59 @@ df = spark \
     .option("startingOffsets", "earliest") \
     .load()
 
+def count_rows_in_batch(batch_df, batch_id):
+    row_count = batch_df.count()
+    print("-----------------------------------------------------------------------------------------------------------------------")
+    print(f"Batch ID: {batch_id}, Row count: {row_count}")
+    print("-----------------------------------------------------------------------------------------------------------------------")
+    
+
+query = df.writeStream \
+    .foreachBatch(count_rows_in_batch) \
+    .start()
+    
 df = df.selectExpr("CAST(value AS STRING)")
+
 
 json_df = df.select(from_json(col("value"), schema).alias("data")).select("data.*")
 
-processed_df = json_df.filter(col("co_level") > 5.0)
+
+json_df_with_count = json_df.withColumn("count", lit(1))
 
 
-logger.info("---------------------processing -------------------------")
+count_df = json_df_with_count.groupBy().agg(count("count").alias("message_count"))
 
 
-log_messages_df = processed_df.withColumn(
-    "value", concat(lit("mensaje del 'sensor id': "), col("sensor_id"))
-).selectExpr("CAST(value AS STRING)")
+filtered_df = df.filter((col("MQ-07") > 5) & (col("MQ-135") > 5))
 
-# Escribir los mensajes de log al tópico de Kafka "logs"
-#log_query = log_messages_df.writeStream \
-#    .format("kafka") \
-#    .option("kafka.bootstrap.servers", "kafka:9092") \
-#    .option("topic", "logs") \
-#    .option("checkpointLocation", "/tmp/checkpoints") \
-#    .start()
+def send_to_kafka(df, epoch_id):
 
-query = processed_df.writeStream \
-    .outputMode("append") \
-    .format("console") \
+    for row in df.collect():
+        producer.send('Air_Danger', {'message': 'Se detectaron emisiomes peligrosas en ..'})
+    producer.flush()
+
+
+def process_batch(batch_df, batch_id):
+
+    cities = batch_df.select("location").distinct().collect()
+    for city in cities:
+        print(f"City: {city['location']}")
+
+
+    batch_df.selectExpr("CAST(location AS STRING) AS key", "to_json(struct(*)) AS value") \
+        .write \
+        .format("kafka") \
+        .option("kafka.bootstrap.servers", "kafka:9092") \
+        .option("topic", "filtered_air_quality") \
+        .save()
+
+query = filtered_df.writeStream \
+    .foreachBatch(process_batch) \
+    .option("checkpointLocation", "/path/to/checkpoint/dir") \
     .start()
+    
+print("-----------------------------------------------------------------------------------------------------------------------")
+print("-------------------------------------Fin Batch de IOT AirMaster----------------------------------------------")
+print("-----------------------------------------------------------------------------------------------------------------------")
 
-
-#log_query.awaitTermination()
 query.awaitTermination()
